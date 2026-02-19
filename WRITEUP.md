@@ -100,7 +100,7 @@ They were completely blind to each other.
 | **4** | 4.7% | **Drive** | ambitious, passionate, determined, bellicose | startled, taken aback, astonished, alarmed | 20/20 |
 | **5** | 4.2% | **Gravity** | reverent, contemplative, solemn, languid | confident, self-confident, happy, hopeful, excited | 20/20 |
 | **6** | 3.6% | **Engagement** | interested, excited, aroused, amused, impatient | conceited, self-confident, ashamed, solemn | 20/20 |
-| **7** | 3.5% | *(noise)* | despondent, dejected, astonished, determined, solemn | uncomfortable, hostile, friendly, hateful, jealous | ~12/20 |
+| **7** | 3.5% | **Purpose(?)** | despondent, dejected, astonished, determined, solemn | uncomfortable, hostile, friendly, hateful, jealous | ~12/20 |
 | **8** | 3.3% | **Vulnerability** | embarrassed, sad, courageous, friendly, depressed | discontented, dissatisfied, satisfied, content | 19/20 |
 | **9** | 2.7% | **Conscience** | embarrassed, interested, guilty, envious, conscientious | hostile, defiant, angry, hateful, bellicose | 20/20 |
 | **10** | 2.6% | **Warmth** | hopeful, compassionate, friendly, glad | conceited, languid, sleepy, feeling superior, lusting | 20/20 |
