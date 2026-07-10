@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sphereoplex — 94 emotion words in embedding space</title>
+<style>
+  :root{
+    --bg:#fcfcfb; --ink:#1c1c1a; --muted:#57564f; --faint:#8a897f;
+    --grid:#e4e3dd; --panel:#f2f1ec; --border:#d8d7d0; --link:#2a5db0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1a1a19; --ink:#eceae4; --muted:#b3b1a8; --faint:#83817a;
+      --grid:#33332f; --panel:#232322; --border:#3c3b37; --link:#7fa8e8;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap{max-width:1020px; margin:0 auto; padding:14px 18px 22px}
+  h1{font-size:19px; margin:0 0 2px}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 10px}
+  .bar{display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; padding:8px 12px; margin-bottom:10px}
+  .bar label{font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center}
+  select{font:13px system-ui, sans-serif; max-width:280px; color:var(--ink);
+    background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:3px 4px}
+  .plotbox{position:relative}
+  svg{display:block; width:100%; height:auto; background:var(--bg)}
+  svg text{user-select:none}
+  .lbl{fill:var(--muted); font-size:10px; pointer-events:none}
+  .lbl.hot{fill:var(--ink); font-size:13px; font-weight:600}
+  .edge{fill:var(--ink); font-size:11px}
+  .axname{fill:var(--muted); font-size:11px}
+  .zero{stroke:var(--grid); stroke-width:1}
+  #readout{
+    position:absolute; top:6px; right:8px; display:none;
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:4px 9px; font-size:12px; color:var(--ink); pointer-events:none;
+    font-variant-numeric:tabular-nums;
+  }
+  #status{position:absolute; inset:40% 0 auto 0; text-align:center; color:var(--muted)}
+  #legend{display:none; align-items:center; gap:10px; flex-wrap:wrap;
+    font-size:11.5px; color:var(--ink); margin:6px 2px 0}
+  #legbar{width:180px; height:10px; border-radius:5px; border:1px solid var(--border)}
+  #legname{color:var(--muted)}
+  footer{margin-top:14px; border-top:1px solid var(--border); padding-top:8px;
+    font-size:12px; color:var(--muted)}
+  footer a{color:var(--link)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sphereoplex</h1>
+  <p class="sub">94 emotion words, embedded and projected onto principal components. Pick a model and axes; hover a word for its coordinates.</p>
+
+  <div class="bar">
+    <label>Model <select id="selModel"></select></label>
+    <label>X axis <select id="selX"></select></label>
+    <label>Y axis <select id="selY"></select></label>
+    <label>Color by <select id="selC"></select></label>
+  </div>
+
+  <div class="plotbox">
+    <svg id="plot" viewBox="0 0 940 600" role="img"
+         aria-label="Scatter plot of 94 emotion words in PCA space"></svg>
+    <div id="readout"></div>
+    <div id="status">Loading…</div>
+  </div>
+
+  <div id="legend">
+    <span id="leglo"></span>
+    <span id="legbar"></span>
+    <span id="leghi"></span>
+    <span id="legname"></span>
+  </div>
+
+  <footer>
+    Mode: &ldquo;I feel {x}&rdquo; sentence embeddings, PCA over 94 affect terms &middot;
+    <a href="https://github.com/dudebot/sphereoplex">github.com/dudebot/sphereoplex</a><span id="caveat" hidden>
+    &middot; Caveat: Gemini PC4 was flagged by the rater panel as a lexical register artifact, not an emotion axis.</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+var MODELS = [
+  { id:"small",  name:"OpenAI small", file:"./sphereoplex_sentences.json" },
+  { id:"large",  name:"OpenAI large", file:"./sphereoplex_sentences_text-embedding-3-large.json" },
+  { id:"gemini", name:"Gemini",       file:"./sphereoplex_sentences_gemini-embedding-001.json" }
+];
+
+// Rater-consensus PC labels, per model. Signs are arbitrary per PCA run,
+// so poles are never named here; extremes are computed at render time.
+var PC_LABELS = {
+  small: ["Valence","Arousal","Certainty","Drive","Gravity","Engagement",
+          "Purpose(?)","Vulnerability","Conscience","Warmth"],
+  large: ["Valence","Deactivation vs dominance","Anticipatory uncertainty",
+          "Receptivity vs aggression","Goal striving","Composure vs desire",
+          "Anger vs awe","Other- vs self-blame","Covert vs overt hostility",
+          "Engagement vs lethargy"],
+  gemini:["Valence","Arousal (within negative)","Fear vs anger",
+          "Register artifact (not emotion)","Disengagement vs desire",
+          "Acute vs chronic","Affect vs epistemic","Serenity vs turmoil",
+          "Moral self-evaluation","Distrust vs desire"]
+};
+
+var W = 940, H = 600, M = { l:36, r:14, t:16, b:36 };
+var COL_NEG = [42,120,214], COL_MID = [154,153,148], COL_POS = [227,73,72]; // blue / gray / red
+var GRAY_DOT = "rgb(122,122,117)";
+
+var state = { model:"small", xd:0, yd:1, cd:8 }; // cd: 0..9, or -1 for None
+var cache = {};
+var svg = document.getElementById("plot");
+var readout = document.getElementById("readout");
+var statusEl = document.getElementById("status");
+var sels = {
+  model: document.getElementById("selModel"),
+  x: document.getElementById("selX"),
+  y: document.getElementById("selY"),
+  c: document.getElementById("selC")
+};
+
+function el(tag, attrs) {
+  var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function fmtEV(f) { return (f * 100).toFixed(1) + "%"; }
+function axisName(modelId, d, data) {
+  return "PC" + (d + 1) + " — " + PC_LABELS[modelId][d] +
+         " (" + fmtEV(data.explained_variance[d]) + ")";
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rampColor(t) { // t in [-1,1]: blue .. gray .. red
+  var from = COL_MID, to = t < 0 ? COL_NEG : COL_POS, u = Math.min(1, Math.abs(t));
+  var c = [0,1,2].map(function (i) { return Math.round(lerp(from[i], to[i], u)); });
+  return "rgb(" + c.join(",") + ")";
+}
+// Most extreme 3 terms at each end of dimension d (most extreme first).
+function extremes(data, d) {
+  var order = data.terms.slice().sort(function (a, b) {
+    return data.coords_10d[a][d] - data.coords_10d[b][d];
+  });
+  return { lo: order.slice(0, 3), hi: order.slice(-3).reverse() };
+}
+function fmtVal(v) { return (v >= 0 ? "+" : "") + v.toFixed(3); }
+
+function buildModelSelect() {
+  MODELS.forEach(function (m, i) {
+    sels.model.add(new Option(m.name, m.id, i === 0, m.id === state.model));
+  });
+}
+function buildAxisSelects(data) {
+  [["x", false], ["y", false], ["c", true]].forEach(function (spec) {
+    var sel = sels[spec[0]];
+    sel.innerHTML = "";
+    if (spec[1]) sel.add(new Option("None", "-1"));
+    for (var d = 0; d < 10; d++) {
+      sel.add(new Option(axisName(state.model, d, data), String(d)));
+    }
+  });
+  sels.x.value = String(state.xd);
+  sels.y.value = String(state.yd);
+  sels.c.value = String(state.cd);
+}
+
+function load(modelId) {
+  if (cache[modelId]) return Promise.resolve(cache[modelId]);
+  var m = MODELS.filter(function (x) { return x.id === modelId; })[0];
+  return fetch(m.file).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function (j) { cache[modelId] = j; return j; });
+}
+
+function render(data) {
+  var xd = state.xd, yd = state.yd, cd = state.cd;
+  var terms = data.terms, C = data.coords_10d;
+
+  var xs = terms.map(function (t) { return C[t][xd]; });
+  var ys = terms.map(function (t) { return C[t][yd]; });
+  var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+  var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+  var xp = (xmax - xmin) * 0.07, yp = (ymax - ymin) * 0.07;
+  xmin -= xp; xmax += xp; ymin -= yp; ymax += yp;
+  var sx = function (v) { return M.l + (v - xmin) / (xmax - xmin) * (W - M.l - M.r); };
+  var sy = function (v) { return H - M.b - (v - ymin) / (ymax - ymin) * (H - M.t - M.b); };
+
+  var maxAbsC = 1;
+  if (cd >= 0) {
+    maxAbsC = Math.max.apply(null, terms.map(function (t) { return Math.abs(C[t][cd]); })) || 1;
+  }
+
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  // Zero reference lines
+  if (xmin < 0 && xmax > 0) svg.appendChild(el("line",
+    { x1:sx(0), x2:sx(0), y1:M.t, y2:H - M.b, "class":"zero" }));
+  if (ymin < 0 && ymax > 0) svg.appendChild(el("line",
+    { x1:M.l, x2:W - M.r, y1:sy(0), y2:sy(0), "class":"zero" }));
+
+  // Axis-end extreme terms + axis titles (signs are arbitrary; computed live)
+  var ex = extremes(data, xd), ey = extremes(data, yd);
+  function edgeText(attrs, str, cls) {
+    var t = el("text", attrs);
+    t.setAttribute("class", cls || "edge");
+    t.textContent = str;
+    svg.appendChild(t);
+  }
+  var by = H - 10, midX = (M.l + W - M.r) / 2, midY = (M.t + H - M.b) / 2;
+  edgeText({ x:M.l, y:by, "text-anchor":"start" }, "← " + ex.lo.join(", "));
+  edgeText({ x:W - M.r, y:by, "text-anchor":"end" }, ex.hi.join(", ") + " →");
+  edgeText({ x:midX, y:by, "text-anchor":"middle" }, axisName(state.model, xd, data), "axname");
+  edgeText({ x:12, y:H - M.b, "text-anchor":"start",
+    transform:"rotate(-90 12 " + (H - M.b) + ")" }, "← " + ey.lo.join(", "));
+  edgeText({ x:12, y:M.t, "text-anchor":"end",
+    transform:"rotate(-90 12 " + M.t + ")" }, ey.hi.join(", ") + " →");
+  edgeText({ x:12, y:midY, "text-anchor":"middle",
+    transform:"rotate(-90 12 " + midY + ")" }, axisName(state.model, yd, data), "axname");
+
+  // Dots + labels
+  terms.forEach(function (term) {
+    var x = sx(C[term][xd]), y = sy(C[term][yd]);
+    var color = cd >= 0 ? rampColor(C[term][cd] / maxAbsC) : GRAY_DOT;
+    var g = el("g", {});
+    var hit = el("circle", { cx:x, cy:y, r:9, fill:"transparent" });
+    var dot = el("circle", { cx:x, cy:y, r:3.5, fill:color });
+    var lbl = el("text", { x:x + 6, y:y + 3.5, "class":"lbl" });
+    lbl.textContent = term;
+    g.appendChild(hit); g.appendChild(dot); g.appendChild(lbl);
+    g.addEventListener("mouseenter", function () {
+      svg.appendChild(g);            // raise to front
+      dot.setAttribute("r", 5.5);
+      lbl.setAttribute("class", "lbl hot");
+      var parts = [term,
+        "PC" + (xd + 1) + " " + fmtVal(C[term][xd]),
+        "PC" + (yd + 1) + " " + fmtVal(C[term][yd])];
+      if (cd >= 0 && cd !== xd && cd !== yd) {
+        parts.push("PC" + (cd + 1) + " " + fmtVal(C[term][cd]));
+      }
+      readout.textContent = parts.join("  ·  ");
+      readout.style.display = "block";
+    });
+    g.addEventListener("mouseleave", function () {
+      dot.setAttribute("r", 3.5);
+      lbl.setAttribute("class", "lbl");
+      readout.style.display = "none";
+    });
+    svg.appendChild(g);
+  });
+
+  // Color legend
+  var legend = document.getElementById("legend");
+  if (cd >= 0) {
+    var ec = extremes(data, cd), stops = [];
+    for (var i = 0; i <= 8; i++) stops.push(rampColor(i / 4 - 1));
+    document.getElementById("legbar").style.background =
+      "linear-gradient(to right," + stops.join(",") + ")";
+    document.getElementById("leglo").textContent = "← " + ec.lo.join(", ");
+    document.getElementById("leghi").textContent = ec.hi.join(", ") + " →";
+    document.getElementById("legname").textContent =
+      "color: " + axisName(state.model, cd, data);
+    legend.style.display = "flex";
+  } else {
+    legend.style.display = "none";
+  }
+
+  document.getElementById("caveat").hidden = state.model !== "gemini";
+}
+
+function refresh() {
+  statusEl.style.display = "block";
+  statusEl.textContent = "Loading…";
+  load(state.model).then(function (data) {
+    statusEl.style.display = "none";
+    buildAxisSelects(data);
+    render(data);
+  }).catch(function (e) {
+    statusEl.textContent = "Failed to load data (" + e.message +
+      "). Serve this page over HTTP so the JSON files can be fetched.";
+  });
+}
+
+sels.model.addEventListener("change", function () {
+  state.model = sels.model.value; refresh();
+});
+sels.x.addEventListener("change", function () {
+  state.xd = +sels.x.value; render(cache[state.model]);
+});
+sels.y.addEventListener("change", function () {
+  state.yd = +sels.y.value; render(cache[state.model]);
+});
+sels.c.addEventListener("change", function () {
+  state.cd = +sels.c.value; render(cache[state.model]);
+});
+
+buildModelSelect();
+refresh();
+</script>
+</body>
+</html>

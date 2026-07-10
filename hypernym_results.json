@@ -1,0 +1,21 @@
+{
+  "baseline_adjectives": {
+    "disparity": 0.4675,
+    "valence_r": 0.85,
+    "arousal_r": 0.607,
+    "kept": 94,
+    "note": "from circumplex.py chart_data.csv --cached, words mode"
+  },
+  "D0_nominalized": {
+    "disparity": 0.4823,
+    "valence_r": 0.827,
+    "arousal_r": 0.603,
+    "kept": 94
+  },
+  "D1_one_hypernym_step": {
+    "disparity": 0.8373,
+    "valence_r": 0.685,
+    "arousal_r": 0.163,
+    "kept": 51
+  }
+}
