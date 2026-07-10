@@ -55,9 +55,26 @@ TERMS = [
 
 
 def get_embeddings(terms: list[str], model: str = "text-embedding-3-small") -> np.ndarray:
-    print(f"Fetching embeddings for {len(terms)} terms...")
-    response = client.embeddings.create(input=terms, model=model)
-    embeddings = np.array([item.embedding for item in response.data])
+    print(f"Fetching embeddings for {len(terms)} terms via {model}...")
+    if model.startswith("gemini"):
+        import json as _json
+        import urllib.request
+        key = os.getenv("GEMINI_API_KEY")
+        vals = []
+        for i in range(0, len(terms), 100):  # batch API caps at 100 per request
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents?key={key}",
+                data=_json.dumps({"requests": [
+                    {"model": f"models/{model}", "content": {"parts": [{"text": t}]}}
+                    for t in terms[i:i+100]
+                ]}).encode(),
+                headers={"Content-Type": "application/json"})
+            vals.extend(_json.load(urllib.request.urlopen(req, timeout=120))["embeddings"])
+        resp = {"embeddings": vals}
+        embeddings = np.array([e["values"] for e in resp["embeddings"]])
+    else:
+        response = client.embeddings.create(input=terms, model=model)
+        embeddings = np.array([item.embedding for item in response.data])
     print(f"Embeddings shape: {embeddings.shape}")
     return embeddings
 
@@ -74,8 +91,13 @@ def analyze_axis(pca_coords: np.ndarray, axis: int, terms: list[str], n: int = 1
 
 
 def main():
+    import sys
+    model = "text-embedding-3-small"
+    if "--model" in sys.argv:
+        model = sys.argv[sys.argv.index("--model") + 1]
+    suffix = "" if model == "text-embedding-3-small" else f"_{model}"
     terms = TERMS
-    print(f"Total terms: {len(terms)}")
+    print(f"Total terms: {len(terms)} | model: {model}")
 
     # Try all three input modes
     modes = {
@@ -89,7 +111,7 @@ def main():
         print(f"MODE: {mode_name} | {len(texts)} terms")
         print(f"{'='*70}")
 
-        embeddings = get_embeddings(texts)
+        embeddings = get_embeddings(texts, model=model)
 
         # PCA to 5 components so we can see the dropoff
         pca = PCA(n_components=min(10, len(terms)))
@@ -101,8 +123,8 @@ def main():
             print(f"  PC{i+1}: {v:.4f}  {bar}")
         print(f"  Total (3 components): {sum(pca.explained_variance_ratio_[:3]):.3f}")
 
-        # Analyze what each of the first 3 axes captures
-        for axis in range(3):
+        # Analyze what each axis captures
+        for axis in range(min(10, len(terms))):
             analyze_axis(pca_coords, axis, terms, n=8)
 
         # 3D plot
@@ -124,7 +146,7 @@ def main():
         ax.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]:.1%})")
         ax.set_title(f"Claude's Sphereoplex of Affect — {mode_name}")
         plt.colorbar(sc, label="PC1 (valence?)", shrink=0.6)
-        plt.savefig(f"sphereoplex_{mode_name}.png", dpi=150, bbox_inches="tight")
+        plt.savefig(f"sphereoplex_{mode_name}{suffix}.png", dpi=150, bbox_inches="tight")
         print(f"\nSaved: sphereoplex_{mode_name}.png")
         plt.close()
 
@@ -146,16 +168,17 @@ def main():
 
         plt.suptitle(f"Sphereoplex Projections — {mode_name}", fontsize=14)
         plt.tight_layout()
-        plt.savefig(f"sphereoplex_2d_{mode_name}.png", dpi=150, bbox_inches="tight")
+        plt.savefig(f"sphereoplex_2d_{mode_name}{suffix}.png", dpi=150, bbox_inches="tight")
         print(f"Saved: sphereoplex_2d_{mode_name}.png")
         plt.close()
 
         # Save coords for later
-        with open(f"sphereoplex_{mode_name}.json", "w") as f:
+        with open(f"sphereoplex_{mode_name}{suffix}.json", "w") as f:
             json.dump({
                 "terms": terms,
                 "explained_variance": pca.explained_variance_ratio_.tolist(),
                 "coords_3d": {t: coords3[j].tolist() for j, t in enumerate(terms)},
+                "coords_10d": {t: pca_coords[j].tolist() for j, t in enumerate(terms)},
             }, f, indent=2)
 
 

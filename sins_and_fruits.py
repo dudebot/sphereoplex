@@ -76,6 +76,22 @@ FRUITS_AFFECT_MAP = {
 
 
 def get_embeddings(terms: list[str], model: str = "text-embedding-3-small") -> np.ndarray:
+    if model.startswith("gemini"):
+        import json as _json
+        import urllib.request
+        key = os.getenv("GEMINI_API_KEY")
+        vals = []
+        for i in range(0, len(terms), 100):  # batch API caps at 100 per request
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents?key={key}",
+                data=_json.dumps({"requests": [
+                    {"model": f"models/{model}", "content": {"parts": [{"text": t}]}}
+                    for t in terms[i:i+100]
+                ]}).encode(),
+                headers={"Content-Type": "application/json"})
+            vals.extend(_json.load(urllib.request.urlopen(req, timeout=120))["embeddings"])
+        resp = {"embeddings": vals}
+        return np.array([e["values"] for e in resp["embeddings"]])
     response = client.embeddings.create(input=terms, model=model)
     return np.array([item.embedding for item in response.data])
 
@@ -90,6 +106,12 @@ def fisher_discriminant_ratio(scores_a: np.ndarray, scores_b: np.ndarray) -> flo
 
 
 def main():
+    import sys
+    model = "text-embedding-3-small"
+    if "--model" in sys.argv:
+        model = sys.argv[sys.argv.index("--model") + 1]
+    suffix = "" if model == "text-embedding-3-small" else f"_{model}"
+    print(f"model: {model}")
     # Embed everything together: affect terms + sins + fruits
     all_terms = AFFECT_TERMS + SINS + FRUITS
     all_labels = (["affect"] * len(AFFECT_TERMS) +
@@ -108,7 +130,7 @@ def main():
         print(f"{'='*70}")
 
         texts = [transform(t) for t in all_terms]
-        embeddings = get_embeddings(texts)
+        embeddings = get_embeddings(texts, model=model)
 
         # PCA on full set
         n_components = min(20, len(all_terms) - 1)
@@ -260,7 +282,7 @@ def main():
 
         plt.suptitle(f"Seven Deadly Sins vs Fruits of the Spirit — {mode_name}", fontsize=14)
         plt.tight_layout()
-        plt.savefig(f"sins_fruits_{mode_name}.png", dpi=150, bbox_inches="tight")
+        plt.savefig(f"sins_fruits_{mode_name}{suffix}.png", dpi=150, bbox_inches="tight")
         print(f"\nSaved: sins_fruits_{mode_name}.png")
         plt.close()
 
