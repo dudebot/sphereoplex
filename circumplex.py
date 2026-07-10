@@ -80,14 +80,22 @@ def get_embeddings(terms: list[str], model: str = "text-embedding-3-small") -> n
     return embeddings
 
 
-def run_experiment(circumplex: dict[str, tuple[float, float]], mode: str = "words"):
+def run_experiment(circumplex: dict[str, tuple[float, float]], mode: str = "words",
+                   cached_coords: dict[str, list[float]] | None = None):
     """
     Run the full experiment.
     mode: "words" = embed just the emotion word
           "sentences" = embed "I feel {word}" sentences
           "descriptions" = embed richer emotional descriptions
+    cached_coords: term -> PCA coords from a sphereoplex_{mode}.json, to reuse
+          an existing PCA run instead of re-embedding
     """
     terms = list(circumplex.keys())
+    if cached_coords is not None:
+        terms = [t for t in terms if t in cached_coords]
+        skipped = sorted(set(circumplex) - set(terms))
+        if skipped:
+            print(f"Skipping terms not in cached coords: {skipped}")
     russell_coords = np.array([circumplex[t] for t in terms])
 
     # Build input texts based on mode
@@ -104,13 +112,18 @@ def run_experiment(circumplex: dict[str, tuple[float, float]], mode: str = "word
     print(f"MODE: {mode}")
     print(f"{'='*60}")
 
-    # Get embeddings and PCA to 2D
-    embeddings = get_embeddings(texts)
-    pca = PCA(n_components=2)
-    pca_coords = pca.fit_transform(embeddings)
-
-    print(f"PCA explained variance: {pca.explained_variance_ratio_}")
-    print(f"Total variance explained: {sum(pca.explained_variance_ratio_):.3f}")
+    # Get embeddings and PCA to 2D (or reuse a saved PCA run)
+    if cached_coords is not None:
+        pca_coords = np.array([cached_coords[t][:2] for t in terms])
+        explained_variance = None
+        print("Using cached PCA coords (first 2 components)")
+    else:
+        embeddings = get_embeddings(texts)
+        pca = PCA(n_components=2)
+        pca_coords = pca.fit_transform(embeddings)
+        explained_variance = pca.explained_variance_ratio_.tolist()
+        print(f"PCA explained variance: {pca.explained_variance_ratio_}")
+        print(f"Total variance explained: {sum(pca.explained_variance_ratio_):.3f}")
 
     # Procrustes analysis: optimally rotate/scale PCA to match Russell
     russell_norm = russell_coords - russell_coords.mean(axis=0)
@@ -182,7 +195,7 @@ def run_experiment(circumplex: dict[str, tuple[float, float]], mode: str = "word
     return {
         "mode": mode,
         "disparity": disparity,
-        "explained_variance": pca.explained_variance_ratio_.tolist(),
+        "explained_variance": explained_variance,
         "pca_coords": {t: pca_coords[j].tolist() for j, t in enumerate(terms)},
         "procrustes_coords": {t: mtx2[j].tolist() for j, t in enumerate(terms)},
     }
@@ -190,6 +203,7 @@ def run_experiment(circumplex: dict[str, tuple[float, float]], mode: str = "word
 
 def main():
     circumplex = CIRCUMPLEX
+    use_cached = "--cached" in sys.argv
 
     # If a CSV is provided, use that instead
     if len(sys.argv) > 1 and sys.argv[1].endswith(".csv"):
@@ -198,15 +212,20 @@ def main():
 
     results = {}
     for mode in ["words", "sentences", "descriptions"]:
-        results[mode] = run_experiment(circumplex, mode)
+        cached_coords = None
+        if use_cached:
+            with open(f"sphereoplex_{mode}.json") as f:
+                cached_coords = json.load(f)["coords_3d"]
+        results[mode] = run_experiment(circumplex, mode, cached_coords=cached_coords)
 
     # Summary
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
     for mode, r in results.items():
-        print(f"  {mode:15s}  disparity={r['disparity']:.4f}  "
-              f"var_explained={sum(r['explained_variance']):.3f}")
+        var = (f"var_explained={sum(r['explained_variance']):.3f}"
+               if r["explained_variance"] else "var_explained=(cached)")
+        print(f"  {mode:15s}  disparity={r['disparity']:.4f}  {var}")
 
     with open("results.json", "w") as f:
         json.dump(results, f, indent=2)

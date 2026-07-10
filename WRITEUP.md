@@ -32,13 +32,15 @@ When you take 1536-dimensional embeddings and say "show me the two most importan
 
 | Mode | Procrustes Disparity | Valence r | Arousal r |
 |---|---|---|---|
-| **bare words** | 0.248 | 0.939 (p≈0) | 0.789 (p≈0) |
-| **"I feel {x}"** | 0.209 | 0.961 (p≈0) | 0.809 (p≈0) |
-| **"The emotional state of feeling {x}"** | 0.140 | 0.956 (p≈0) | 0.902 (p≈0) |
+| **bare words** | 0.468 | 0.850 (p≈0) | 0.607 (p≈0) |
+| **"I feel {x}"** | 0.452 | 0.892 (p≈0) | 0.575 (p≈0) |
+| **"The emotional state of feeling {x}"** | 0.357 | 0.909 (p≈0) | 0.690 (p≈0) |
 
-The richer the sentence framing, the cleaner the alignment. PC1 is valence. PC2 is arousal. The model *knows*.
+*(Numbers are from the full 94-term chart, digitized marker-by-marker from the source image — `chart_data.csv`. An earlier version of this table used 28 hand-approximated coordinates and reported friendlier numbers — disparity 0.140–0.248, r up to 0.96. More terms and real coordinates are harder to fit; these are the honest values.)*
 
-Procrustes disparity of 0.140 means that when you optimally overlay the model's output onto Russell's original chart, they're about 86% the same shape. For "I literally just dumped words into an API and hit PCA," that's kind of ridiculous.
+The richer the sentence framing, the cleaner the alignment. PC1 is valence. PC2 is arousal. The model *knows* — though it knows valence (r ≈ 0.9) more confidently than arousal (r ≈ 0.6–0.7). The arousal axis the model finds is tilted toward what several blind raters later called "*hostile* arousal" — indignant and defiant at the top rather than pure activation — which costs it correlation against the chart's cleaner activation axis.
+
+Procrustes disparity of 0.357 means that when you optimally overlay the model's output onto the full 94-term chart, they're about 64% the same shape. For "I literally just dumped words into an API and hit PCA," that's still kind of ridiculous.
 
 The kicker: the first two PCs explain only ~28% of total variance. The model knows *way* more about these words than just their emotional content — but when you ask "what's the single most important thing differentiating these emotion words?" the answer is valence, and the second most important thing is arousal. Exactly what Russell said.
 
