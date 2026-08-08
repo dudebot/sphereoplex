@@ -14,6 +14,14 @@ So it goes.
 
 ---
 
+**What this is:** 94 emotion words from Russell's circumplex chart, embedded with three models (OpenAI `text-embedding-3-small` and `-3-large`, Google `gemini-embedding-001`), reduced with PCA, aligned against the digitized chart, labeled by 20 blind AI raters, and stress-tested against the seven deadly sins, the fruits of the spirit, and one rung of the WordNet abstraction ladder. This README is the writeup; every script, coordinate file, and figure it cites is committed alongside it.
+
+- **Explore:** https://dudebot.github.io/sphereoplex/ — the interactive visualizer, all three models, all ten axes.
+- **Reproduce:** see [Reproducing the Results](#reproducing-the-results) — four scripts, one or two API keys, no other infrastructure.
+- **Status:** an exploratory experiment, not a paper. The core findings replicated across three models; the claims that didn't survive replication are kept in place as errata, per house policy.
+
+---
+
 ## The Setup
 
 Here's the thing about embedding models: they're dumb in the most interesting way possible. You feed them words, they spit back 1536 numbers, and those numbers are supposed to contain *meaning*. Somehow. It works, but we don't really know why, and that's where things get fun.
@@ -258,6 +266,60 @@ Absolutely.
 - **Abstraction ladder**: hand-curated nominalization, one WordNet (NLTK) hypernym step from a hand-picked emotion sense, pre-registered decision rule
 - **Visualizer**: single-file `index.html`, zero dependencies, SVG
 - **All code**: Python. scikit-learn, scipy, numpy, matplotlib, NLTK.
+
+---
+
+## Reproducing the Results
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # add your OPENAI_API_KEY; add GEMINI_API_KEY too if you want the gemini runs
+```
+
+The four experiments are four scripts:
+
+```bash
+# 1. Embed the 94 terms in three prompt modes, PCA to 10 components,
+#    write the figures and the sphereoplex_{mode}.json coordinate files
+python sphereoplex.py                                  # text-embedding-3-small (default)
+python sphereoplex.py --model text-embedding-3-large   # non-default models suffix their outputs
+python sphereoplex.py --model gemini-embedding-001
+
+# 2. Procrustes-align the PCA plane against the digitized chart (Finding 1) -> results.json
+python circumplex.py chart_data.csv --cached   # --cached reuses the committed small-model coords
+python circumplex.py chart_data.csv            # ...or re-embed from scratch
+
+# 3. Sins vs fruits: separate PCA over all 110 words, Fisher/LDA/Mann-Whitney (Finding 5)
+python sins_and_fruits.py                      # takes the same --model flag
+
+# 4. The abstraction ladder -> hypernym_results.json
+#    (extra dependency: pip install nltk && python -m nltk.downloader wordnet)
+python hypernym_abstraction.py
+```
+
+Every output — the coordinate JSONs, `results.json`, `hypernym_results.json`, all the figures — is committed, so you can check any number in this document without spending a cent on embeddings. The rerun-determinism figures in Finding 1 came from exactly this: run it again, diff the JSONs.
+
+To run the visualizer locally, serve the repo over HTTP (the page fetches the coordinate JSONs, so opening it as a `file://` won't work):
+
+```bash
+python -m http.server 8000   # then open http://localhost:8000/
+```
+
+## Repository Map
+
+| Path | What it is |
+|---|---|
+| `sphereoplex.py` | Core experiment: 94 terms × 3 prompt modes, PCA, plots, coordinate JSONs |
+| `circumplex.py` | Procrustes alignment against the digitized Russell chart |
+| `sins_and_fruits.py` | Sin/fruit separation: PCA over 110 terms, Fisher ratio, LDA, Mann-Whitney |
+| `hypernym_abstraction.py` | Abstraction ladder: hand-curated nominalization + one WordNet hypernym step |
+| `chart_data.csv` | The 98 markers digitized from the source circumplex chart |
+| `index.html` | The zero-dependency SVG visualizer (live at the GitHub Pages link above) |
+| `sphereoplex_{mode}[_{model}].json` | Committed PCA coordinates (`coords_3d` + `coords_10d`) per mode and model |
+| `results.json`, `hypernym_results.json` | The alignment and ladder numbers cited above |
+| `REVIEWER_NOTES.md` | The best quotes from the 20 blind raters |
+| `*.png` | Every figure, per mode and model |
+| `source affect.png`, `The Sphereoplex.pptx` | The chart that started it, and a slide deck |
 
 ---
 
